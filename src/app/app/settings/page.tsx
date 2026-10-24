@@ -147,7 +147,7 @@ export default function SettingsPage() {
             </p>
           </div>
           <Badge variant="secondary" className="font-mono text-xs">
-            gemini-3.1-flash-lite-preview
+            gemma-4-26b-a4b-it
           </Badge>
         </div>
       </Card>

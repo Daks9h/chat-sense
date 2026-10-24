@@ -3,7 +3,7 @@ import { OllamaMetrics, OllamaResponse } from "./ollama";
 export function getGeminiConfig() {
   return {
     apiKey: process.env.GEMINI_API_KEY || "",
-    model: process.env.GEMINI_MODEL || "gemini-3.1-flash-lite-preview"
+    model: process.env.GEMINI_MODEL || "gemma-4-26b-a4b-it"
   };
 }
 
@@ -71,18 +71,23 @@ export async function queryGemini(prompt: string): Promise<OllamaResponse> {
   const startTime = Date.now();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  // Fast execution: disable thinking budget if supported by model (removes 60s+ CoT thinking delay)
-  const isThinkingModel = model.includes("preview") || model.includes("flash") || model.includes("3.1");
+  const isGemma = model.toLowerCase().includes("gemma");
+  const isThinkingModel = !isGemma && (model.includes("preview") || model.includes("flash") || model.includes("3.1"));
+
   const requestBody: {
     contents: Array<{ parts: Array<{ text: string }> }>;
     generationConfig: {
-      responseMimeType: string;
+      temperature: number;
+      maxOutputTokens: number;
+      responseMimeType?: string;
       thinkingConfig?: { thinkingBudget: number };
     };
   } = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
-      responseMimeType: "application/json",
+      temperature: 0.1,
+      maxOutputTokens: 2048,
+      ...(!isGemma ? { responseMimeType: "application/json" } : {}),
       ...(isThinkingModel ? { thinkingConfig: { thinkingBudget: 0 } } : {})
     }
   };
@@ -93,11 +98,12 @@ export async function queryGemini(prompt: string): Promise<OllamaResponse> {
     body: JSON.stringify(requestBody)
   });
 
-  // If rejected because thinkingBudget is not supported, retry without thinkingConfig
-  if (!res.ok && isThinkingModel) {
+  // If rejected because thinkingBudget or responseMimeType is not supported, retry with relaxed config
+  if (!res.ok) {
     const errText = await res.clone().text();
-    if (errText.includes("Thinking budget") || errText.includes("invalid argument") || res.status === 400) {
+    if (errText.includes("Thinking budget") || errText.includes("responseMimeType") || res.status === 400 || res.status === 500) {
       delete requestBody.generationConfig.thinkingConfig;
+      delete requestBody.generationConfig.responseMimeType;
       res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
