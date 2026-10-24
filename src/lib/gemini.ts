@@ -76,6 +76,7 @@ export async function queryGemini(prompt: string): Promise<OllamaResponse> {
 
   const requestBody: {
     contents: Array<{ parts: Array<{ text: string }> }>;
+    systemInstruction?: { parts: Array<{ text: string }> };
     generationConfig: {
       temperature: number;
       maxOutputTokens: number;
@@ -84,9 +85,16 @@ export async function queryGemini(prompt: string): Promise<OllamaResponse> {
     };
   } = {
     contents: [{ parts: [{ text: prompt }] }],
+    systemInstruction: {
+      parts: [
+        {
+          text: "You are a fast, high-accuracy chat extraction engine. Output strictly valid JSON array only. Do NOT output internal thoughts, chain of thought reasoning, or conversational text. Output pure JSON starting with [ and ending with ]."
+        }
+      ]
+    },
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 1536,
       ...(!isGemma ? { responseMimeType: "application/json" } : {}),
       ...(isThinkingModel ? { thinkingConfig: { thinkingBudget: 0 } } : {})
     }
@@ -95,7 +103,8 @@ export async function queryGemini(prompt: string): Promise<OllamaResponse> {
   let res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestBody)
+    body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(9000)
   });
 
   // If rejected because thinkingBudget or responseMimeType is not supported, retry with relaxed config
@@ -107,7 +116,8 @@ export async function queryGemini(prompt: string): Promise<OllamaResponse> {
       res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(9000)
       });
     }
   }

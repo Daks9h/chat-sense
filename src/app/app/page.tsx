@@ -11,6 +11,9 @@ import { Bubble } from "@/components/ui/bubble";
 import { Skeleton } from "@/components/ui/skeleton";
 import { showToast } from "@/components/ui/toaster";
 import { DEMO_CHAT_TEXT } from "@/lib/mock-data";
+import { parseChat } from "@/lib/parser";
+import { extractDeterministically } from "@/lib/deterministic-extractor";
+import { processChatItems } from "@/lib/change-tracker";
 import { Upload, Sparkles, ArrowRight, ShieldCheck, MessageSquare, Zap } from "lucide-react";
 
 function AnalyzeContent() {
@@ -71,8 +74,77 @@ function AnalyzeContent() {
       chatText.includes("sbi-yono-secure-kyc") ||
       chatText.trim() === DEMO_CHAT_TEXT.trim();
 
+    // 1. FAST PROGRESSIVE RENDER: Immediately parse and populate dashboard in <50ms
+    const parseRes = parseChat(chatText);
+    if (parseRes.messages.length > 0) {
+      const fastItems = extractDeterministically(parseRes.messages);
+      const processedFast = processChatItems(fastItems, parseRes.messages);
+
+      setAnalysisState({
+        hasAnalysis: true,
+        messages: parseRes.messages,
+        tasks: (processedFast.tasks || []).map((t: any) => ({
+          id: t.id,
+          title: t.title,
+          datePhrase: t.datePhrase,
+          resolvedDate: t.resolvedDate,
+          source_quote: t.sourceQuote || t.source_quote || t.title,
+          source_message_ids: [t.sourceMessageId || t.source_message_ids?.[0] || t.id],
+          status: t.isCompleted ? "done" : t.isDismissed ? "dismissed" : "open",
+          confidence: t.confidence || "high",
+          isOverdue: t.timeLeft?.status === "overdue",
+          isUrgent: t.timeLeft?.status === "urgent",
+          isUncertain: t.timeLeft?.status === "uncertain",
+          timeLeftText: t.timeLeft?.label || "Pending",
+          wasUpdated: t.wasUpdated,
+          historyNote: t.changeHistory?.[0]?.explanation
+        })),
+        changes: (processedFast.changeFeed || []).map((c: any) => ({
+          id: c.id,
+          taskTitle: c.taskTitle,
+          oldValue: c.oldValue,
+          newValue: c.newValue,
+          explanation: c.explanation,
+          messageSender: c.messageSender,
+          messageTimestamp: c.messageTimestamp,
+          source_message_ids: [c.messageId || c.source_message_ids?.[0]],
+          source_quote: c.sourceQuote || c.source_quote || c.newValue
+        })),
+        info: (processedFast.info || []).map((inf: any) => ({
+          id: inf.id,
+          label: inf.label,
+          value: inf.value,
+          source_message_ids: inf.source_message_ids || [inf.sourceMessageId || inf.id],
+          source_quote: inf.source_quote || inf.sourceQuote || inf.value
+        })),
+        bills: (processedFast.bills || []).map((b: any) => ({
+          id: b.id,
+          payee: b.payee,
+          amount: b.amount,
+          currency: b.currency || "INR",
+          duePhrase: b.duePhrase,
+          resolvedDate: b.resolvedDate || b.resolvedDueDate,
+          isPaid: b.isPaid || false,
+          source_message_ids: [b.sourceMessageId || b.id],
+          source_quote: b.sourceQuote || b.source_quote || b.payee
+        })),
+        fraud: (processedFast.fraud || []).map((f: any) => ({
+          id: f.id,
+          messageId: f.messageId || f.sourceMessageId || f.source_message_ids?.[0],
+          verdict: f.verdict || "Suspicious",
+          reasons: f.reasons || [],
+          extractedDomains: f.extractedDomains || [],
+          source_message_ids: f.source_message_ids || [f.messageId],
+          source_quote: f.source_quote || f.sourceQuote || ""
+        }))
+      });
+
+      showToast.success("Results ready! Populated action items on dashboard.");
+      router.push("/app/today");
+    }
+
+    // 2. Background AI refinement call
     try {
-      // Call analysis API route
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -85,7 +157,6 @@ function AnalyzeContent() {
       const json = await res.json();
 
       if (json.success && json.processed) {
-        // Map processed items into the store
         setAnalysisState({
           hasAnalysis: true,
           messages: json.messages || [],
@@ -144,17 +215,9 @@ function AnalyzeContent() {
             source_quote: f.source_quote || f.sourceQuote || ""
           }))
         });
-
-        showToast.success("Analysis completed! Found tasks, moved deadlines & bills.");
-        router.push("/app/today");
-      } else {
-        // Fallback to demo session
-        loadMockData();
-        router.push("/app/today");
       }
     } catch {
-      loadMockData();
-      router.push("/app/today");
+      // background error silently handled since preliminary results are already active
     } finally {
       setAnalyzing(false);
     }

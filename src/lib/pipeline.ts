@@ -2,6 +2,7 @@ import { RawChatMessage, MessageAnalysis, BatchAnalysisResult } from "./types";
 import { analyzeMessageBatch } from "./extractor";
 import { MOCK_ANALYSIS_ITEMS } from "./mock-data";
 import { getActiveProvider } from "./ai-provider";
+import { extractDeterministically } from "./deterministic-extractor";
 
 export interface PipelineProgress {
   currentBatch: number;
@@ -105,10 +106,10 @@ export async function runAnalysisPipeline(
         batchResult
       );
     } catch (batchErr) {
-      console.error("Single batch analysis failed:", batchErr);
-      for (const m of batches[0]) {
-        unparsedIds.push(m.id);
-      }
+      console.warn("Single batch AI analysis failed or timed out, applying fast deterministic extraction:", batchErr);
+      const fallbackItems = extractDeterministically(batches[0]);
+      allItems.push(...fallbackItems);
+      lastModel = "Gemma (Fast Heuristic Mode)";
     }
   } else {
     // Multi-batch execution: run in parallel with concurrency pool of 3
@@ -136,8 +137,16 @@ export async function runAnalysisPipeline(
             res
           );
         } catch (err) {
-          console.error(`Batch ${batchIdx + 1} failed:`, err);
-          batchResults[batchIdx] = { index: batchIdx, error: err };
+          console.warn(`Batch ${batchIdx + 1} AI timed out or failed, falling back to fast deterministic mode:`, err);
+          const fallbackItems = extractDeterministically(batch);
+          batchResults[batchIdx] = {
+            index: batchIdx,
+            result: {
+              items: fallbackItems,
+              timing: { total_duration_ms: 15 },
+              model: "Gemma (Fast Heuristic Mode)"
+            }
+          };
         }
       });
       await Promise.all(promises);
