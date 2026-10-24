@@ -48,6 +48,7 @@ export interface ProcessedBill {
   currency: "INR";
   duePhrase: string | null;
   resolvedDueDate: string | null;
+  resolvedDate?: string | null;
   timeLeft: TimeLeftMeter;
   sourceMessageId: string;
   sourceSender: string;
@@ -55,6 +56,30 @@ export interface ProcessedBill {
   sourceQuote: string;
   isPaid: boolean;
   isDismissed: boolean;
+}
+
+export interface ProcessedInfo {
+  id: string;
+  label: string;
+  value: string;
+  source_message_ids: string[];
+  source_quote: string;
+}
+
+export interface ProcessedFraud {
+  id: string;
+  messageId: string;
+  verdict: "High risk" | "Suspicious" | "No red flags found";
+  reasons: string[];
+  extractedDomains: Array<{
+    raw: string;
+    realDomain: string;
+    isShortener: boolean;
+    isLookalike: boolean;
+    flags: string[];
+  }>;
+  source_message_ids: string[];
+  source_quote: string;
 }
 
 /**
@@ -75,9 +100,21 @@ function isTaskMatch(taskTitle: string, hintOrText: string): boolean {
   return titleWords.length > 0 && matches / titleWords.length >= 0.5;
 }
 
+const SHORTENER_DOMAINS = new Set([
+  "bit.ly",
+  "tinyurl.com",
+  "t.co",
+  "goo.gl",
+  "ow.ly",
+  "is.gd",
+  "buff.ly",
+  "adf.ly",
+  "bitly.com"
+]);
+
 /**
  * Processes extracted messages to build deduplicated tasks, time-left meters,
- * and the "What Changed" feed (latest message wins).
+ * the "What Changed" feed, notices, and fraud signals.
  */
 export function processChatItems(
   items: MessageAnalysis[],
@@ -87,6 +124,8 @@ export function processChatItems(
   tasks: ConsolidatedTask[];
   changeFeed: ChangeEvent[];
   bills: ProcessedBill[];
+  info: ProcessedInfo[];
+  fraud: ProcessedFraud[];
 } {
   const messageMap = new Map<string, RawChatMessage>();
   for (const m of messages) {
@@ -96,12 +135,16 @@ export function processChatItems(
   const tasks: ConsolidatedTask[] = [];
   const bills: ProcessedBill[] = [];
   const changeFeed: ChangeEvent[] = [];
+  const infoList: ProcessedInfo[] = [];
+  const fraudList: ProcessedFraud[] = [];
 
   let taskCounter = 1;
   let billCounter = 1;
   let changeCounter = 1;
+  let infoCounter = 1;
+  let fraudCounter = 1;
 
-  // 1. First pass: Register original tasks and bills
+  // 1. First pass: Register original tasks, bills, info, and fraud
   for (const item of items) {
     const rawMsg = messageMap.get(item.message_id);
     const msgDate = rawMsg ? parseMessageTimestamp(rawMsg.timestamp) : referenceDate;
@@ -142,6 +185,7 @@ export function processChatItems(
         currency: "INR",
         duePhrase: item.bill.due_phrase || null,
         resolvedDueDate: resolvedDate ? resolvedDate.toISOString() : null,
+        resolvedDate: resolvedDate ? resolvedDate.toISOString() : null,
         timeLeft,
         sourceMessageId: item.message_id,
         sourceSender: rawMsg?.sender || "Sender",
@@ -150,6 +194,89 @@ export function processChatItems(
         isPaid: false,
         isDismissed: false
       });
+    }
+
+    // Info notices
+    if (item.category === "info" || item.info) {
+      infoList.push({
+        id: `i_${String(infoCounter++).padStart(3, "0")}`,
+        label: item.info?.label || "Campus Notice",
+        value: item.info?.value || item.source_quote,
+        source_message_ids: [item.message_id],
+        source_quote: item.source_quote
+      });
+    }
+
+    // Suspicious / Fraud signals
+    const textToCheck = (rawMsg?.text || item.source_quote || "").toLowerCase();
+    const hasSuspiciousCategory = item.category === "suspicious";
+    const hasFraudSignals = item.fraud_signals && item.fraud_signals.length > 0;
+    const urlMatches = (rawMsg?.text || item.source_quote || "").match(/https?:\/\/[^\s)\]>"']+/gi) || [];
+
+    if (hasSuspiciousCategory || hasFraudSignals || urlMatches.length > 0) {
+      const extractedDomains: ProcessedFraud["extractedDomains"] = [];
+      const reasons: string[] = [];
+      let isHighRisk = false;
+
+      for (const u of urlMatches) {
+        try {
+          const parsedUrl = new URL(u);
+          const domain = parsedUrl.hostname.toLowerCase();
+          const isShort = SHORTENER_DOMAINS.has(domain);
+          const isLookalike = domain.includes("sbi") || domain.endsWith(".xyz") || domain.endsWith(".top") || isShort;
+          const flags: string[] = [];
+
+          if (isShort) {
+            flags.push("URL shortener hides target");
+            reasons.push(`Shortened ${domain} link conceals destination`);
+          }
+          if (isLookalike) {
+            flags.push("Potential phishing or untrusted domain");
+          }
+          if (textToCheck.includes("kyc") || textToCheck.includes("blocked") || textToCheck.includes("terminated")) {
+            flags.push("Impersonating bank security alert");
+            isHighRisk = true;
+          }
+
+          extractedDomains.push({
+            raw: u,
+            realDomain: domain,
+            isShortener: isShort,
+            isLookalike,
+            flags: flags.length > 0 ? flags : ["External link"]
+          });
+        } catch {
+          // ignore malformed URLs
+        }
+      }
+
+      if (textToCheck.includes("kyc") || textToCheck.includes("blocked") || textToCheck.includes("deactivated")) {
+        reasons.push("Urgent threat of account block or immediate KYC penalty");
+        isHighRisk = true;
+      }
+      if (textToCheck.includes("discount") || textToCheck.includes("download") || textToCheck.includes(".zip")) {
+        reasons.push("Unsolicited promotional project code or software download lure");
+      }
+      if (item.fraud_signals) {
+        if (item.fraud_signals.includes("urgency") && !reasons.includes("Artificial urgency pressure")) {
+          reasons.push("Artificial urgency pressure");
+        }
+        if (item.fraud_signals.includes("fake_authority")) {
+          reasons.push("Unofficial sender impersonating authority");
+        }
+      }
+
+      if (reasons.length > 0 || extractedDomains.length > 0) {
+        fraudList.push({
+          id: `f_${String(fraudCounter++).padStart(3, "0")}`,
+          messageId: item.message_id,
+          verdict: isHighRisk ? "High risk" : "Suspicious",
+          reasons: reasons.slice(0, 3),
+          extractedDomains,
+          source_message_ids: [item.message_id],
+          source_quote: item.source_quote
+        });
+      }
     }
   }
 
@@ -225,6 +352,8 @@ export function processChatItems(
   return {
     tasks,
     changeFeed,
-    bills
+    bills,
+    info: infoList,
+    fraud: fraudList
   };
 }

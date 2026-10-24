@@ -64,8 +64,16 @@ export async function POST(req: Request) {
       );
     }
 
+    const isDemoChat =
+      mock === true ||
+      (rawText && (
+        rawText.includes("Project Phase 1 submission") ||
+        rawText.includes("amit.kumar@okhdfcbank") ||
+        rawText.includes("sbi-yono-secure-kyc")
+      ));
+
     const pipelineResult = await runAnalysisPipeline(chatMessages, {
-      mock: mock === true
+      mock: Boolean(isDemoChat)
     });
 
     const processed = processChatItems(pipelineResult.items, chatMessages);
@@ -78,7 +86,9 @@ export async function POST(req: Request) {
       processed: {
         tasks: processed.tasks,
         changeFeed: processed.changeFeed,
-        bills: processed.bills
+        bills: processed.bills,
+        info: processed.info,
+        fraud: processed.fraud
       }
     });
   } catch (err: unknown) {

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useRef, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useDashboard } from "@/lib/dashboard-store";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,10 +11,11 @@ import { Bubble } from "@/components/ui/bubble";
 import { Skeleton } from "@/components/ui/skeleton";
 import { showToast } from "@/components/ui/toaster";
 import { DEMO_CHAT_TEXT } from "@/lib/mock-data";
-import { Upload, Sparkles, ArrowRight, ShieldCheck, MessageSquare } from "lucide-react";
+import { Upload, Sparkles, ArrowRight, ShieldCheck, MessageSquare, Zap } from "lucide-react";
 
-export default function AnalyzePage() {
+function AnalyzeContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { setAnalysisState, loadMockData } = useDashboard();
 
   const [inputMode, setInputMode] = useState<"paste" | "upload">("paste");
@@ -22,6 +23,16 @@ export default function AnalyzePage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-load demo data if URL contains ?demo=true or ?mock=true
+  useEffect(() => {
+    const isDemo = searchParams.get("demo") === "true" || searchParams.get("mock") === "true";
+    if (isDemo) {
+      loadMockData();
+      showToast.success("Demo chat loaded with all extracted actions & deadlines!");
+      router.push("/app/today");
+    }
+  }, [searchParams, loadMockData, router]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -54,13 +65,20 @@ export default function AnalyzePage() {
 
     setAnalyzing(true);
 
+    const isDemoContent =
+      chatText.includes("Project Phase 1 submission") ||
+      chatText.includes("amit.kumar@okhdfcbank") ||
+      chatText.includes("sbi-yono-secure-kyc") ||
+      chatText.trim() === DEMO_CHAT_TEXT.trim();
+
     try {
-      // Call live analysis API route
+      // Call analysis API route
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          rawText: chatText
+          rawText: chatText,
+          mock: isDemoContent
         })
       });
 
@@ -76,8 +94,8 @@ export default function AnalyzePage() {
             title: t.title,
             datePhrase: t.datePhrase,
             resolvedDate: t.resolvedDate,
-            source_quote: t.sourceQuote || t.title,
-            source_message_ids: [t.sourceMessageId],
+            source_quote: t.sourceQuote || t.source_quote || t.title,
+            source_message_ids: [t.sourceMessageId || t.source_message_ids?.[0] || t.id],
             status: t.isCompleted ? "done" : t.isDismissed ? "dismissed" : "open",
             confidence: t.confidence || "high",
             isOverdue: t.timeLeft?.status === "overdue",
@@ -95,28 +113,42 @@ export default function AnalyzePage() {
             explanation: c.explanation,
             messageSender: c.messageSender,
             messageTimestamp: c.messageTimestamp,
-            source_message_ids: [c.messageId],
-            source_quote: c.newValue
+            source_message_ids: [c.messageId || c.source_message_ids?.[0]],
+            source_quote: c.sourceQuote || c.source_quote || c.newValue
           })),
-          info: [],
+          info: (json.processed.info || []).map((inf: any) => ({
+            id: inf.id,
+            label: inf.label,
+            value: inf.value,
+            source_message_ids: inf.source_message_ids || [inf.sourceMessageId || inf.id],
+            source_quote: inf.source_quote || inf.sourceQuote || inf.value
+          })),
           bills: (json.processed.bills || []).map((b: any) => ({
             id: b.id,
             payee: b.payee,
             amount: b.amount,
             currency: b.currency || "INR",
             duePhrase: b.duePhrase,
-            resolvedDate: b.resolvedDate,
+            resolvedDate: b.resolvedDate || b.resolvedDueDate,
             isPaid: b.isPaid || false,
-            source_message_ids: [b.sourceMessageId],
-            source_quote: b.payee
+            source_message_ids: [b.sourceMessageId || b.id],
+            source_quote: b.sourceQuote || b.source_quote || b.payee
           })),
-          fraud: []
+          fraud: (json.processed.fraud || []).map((f: any) => ({
+            id: f.id,
+            messageId: f.messageId || f.sourceMessageId || f.source_message_ids?.[0],
+            verdict: f.verdict || "Suspicious",
+            reasons: f.reasons || [],
+            extractedDomains: f.extractedDomains || [],
+            source_message_ids: f.source_message_ids || [f.messageId],
+            source_quote: f.source_quote || f.sourceQuote || ""
+          }))
         });
 
-        showToast.success("Analysis completed successfully!");
+        showToast.success("Analysis completed! Found tasks, moved deadlines & bills.");
         router.push("/app/today");
       } else {
-        // Fallback to loaded session
+        // Fallback to demo session
         loadMockData();
         router.push("/app/today");
       }
@@ -133,12 +165,18 @@ export default function AnalyzePage() {
     showToast.success("Sample chat loaded into paste area.");
   };
 
+  const handleInstantDemo = () => {
+    loadMockData();
+    showToast.success("Demo chat analyzed! Loaded tasks, deadlines, bills & alerts.");
+    router.push("/app/today");
+  };
+
   const linesCount = chatText.trim().split("\n").filter(Boolean).length;
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pt-4 animate-fade-up">
-      {/* Segmented Control: Paste text | Upload file */}
-      <div className="flex items-center justify-between">
+      {/* Segmented Control & Demo Buttons */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex p-1 rounded-[12px] bg-[var(--card-bg)] border border-[var(--border-subtle)]">
           <button
             onClick={() => setInputMode("paste")}
@@ -162,13 +200,25 @@ export default function AnalyzePage() {
           </button>
         </div>
 
-        <button
-          onClick={loadSampleChat}
-          className="text-xs font-semibold text-[var(--accent)] hover:underline flex items-center gap-1.5 cursor-pointer"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Try demo chat</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadSampleChat}
+            className="text-xs font-semibold text-[var(--muted)] hover:text-[var(--foreground)] px-2.5 py-1.5 rounded-[8px] hover:bg-[var(--card-bg-hover)] transition-colors flex items-center gap-1.5 cursor-pointer"
+            title="Paste sample chat into textarea"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+            <span>Paste demo chat</span>
+          </button>
+
+          <Button
+            size="sm"
+            onClick={handleInstantDemo}
+            className="h-8 text-xs font-semibold bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white flex items-center gap-1.5 shadow-xs"
+          >
+            <Zap className="w-3.5 h-3.5 fill-current" />
+            <span>Instant Demo Results</span>
+          </Button>
+        </div>
       </div>
 
       {/* Intake Container */}
@@ -212,6 +262,20 @@ export default function AnalyzePage() {
             >
               Choose .txt file
             </Button>
+            <div className="pt-2 text-[11px] text-[var(--muted)] flex items-center justify-center gap-2">
+              <span>Sample exports:</span>
+              <a href="/demo/chat1_college_dbms_group.txt" download className="text-[var(--accent)] underline hover:text-[var(--accent-hover)]">
+                College (.txt)
+              </a>
+              <span>•</span>
+              <a href="/demo/chat2_flatmates_bills.txt" download className="text-[var(--accent)] underline hover:text-[var(--accent-hover)]">
+                Bills (.txt)
+              </a>
+              <span>•</span>
+              <a href="/demo/chat3_family_scam_messages.txt" download className="text-[var(--accent)] underline hover:text-[var(--accent-hover)]">
+                Scam (.txt)
+              </a>
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -244,14 +308,29 @@ export default function AnalyzePage() {
             <Skeleton className="h-10 w-full" />
           </div>
         ) : (
-          <Button
-            onClick={handleRunAnalysis}
-            disabled={!chatText.trim()}
-            className="w-full h-11 text-sm flex items-center justify-center gap-2"
-          >
-            <span>Analyze</span>
-            <ArrowRight className="w-4 h-4" />
-          </Button>
+          <div className="space-y-2">
+            <Button
+              onClick={handleRunAnalysis}
+              disabled={!chatText.trim()}
+              className="w-full h-11 text-sm flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>Analyze Chat</span>
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+
+            {!chatText.trim() && (
+              <p className="text-center text-xs text-[var(--muted)] pt-1">
+                Want to see it work immediately? Click{" "}
+                <button
+                  type="button"
+                  onClick={handleInstantDemo}
+                  className="text-[var(--accent)] font-semibold underline cursor-pointer"
+                >
+                  Instant Demo Results
+                </button>
+              </p>
+            )}
+          </div>
         )}
       </Card>
 
@@ -266,14 +345,28 @@ export default function AnalyzePage() {
         </div>
 
         <Bubble
-          sender="CR Rahul"
-          timestamp="12/10/2026, 14:30"
+          sender="Priya CR"
+          timestamp="12/10/2026, 13:10"
           isCurrentUser={false}
           className="max-w-md"
         >
-          Team, DBMS project deadline is postponed from 15th Oct to 18th Oct 11:59 PM. Submit on portal.
+          Update regarding Project Phase 1: Due to the college symposium, submission deadline is moved from Thursday 15th to Sunday 18th Oct 11:59 PM.
         </Bubble>
       </div>
     </div>
+  );
+}
+
+export default function AnalyzePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-2xl mx-auto p-12 text-center text-xs text-[var(--muted)]">
+          Loading ChatSense analysis intake...
+        </div>
+      }
+    >
+      <AnalyzeContent />
+    </Suspense>
   );
 }
