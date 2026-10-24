@@ -8,6 +8,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { MessageViewerSheet } from "@/components/message-viewer-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
+import { BrandLogo } from "@/components/brand-logo";
 import { WarpBackground } from "@/components/magicui/warp-background";
 import {
   FileText,
@@ -106,13 +107,8 @@ export function AppShell({ children }: AppShellProps) {
       <aside className="hidden md:flex flex-col w-64 border-r border-[var(--border-subtle)] bg-[var(--card-bg)]/40 p-4 shrink-0 justify-between sticky top-0 h-screen overflow-y-auto">
         <div className="space-y-6">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 px-2 py-1.5 group">
-            <div className="w-8 h-8 rounded-[10px] bg-[var(--accent)] text-white font-heading font-black text-sm flex items-center justify-center shadow-xs">
-              CS
-            </div>
-            <span className="font-heading font-bold text-base tracking-tight text-[var(--foreground)]">
-              ChatSense
-            </span>
+          <Link href="/" className="flex items-center px-2 py-1.5 group">
+            <BrandLogo size={32} textClassName="text-base" />
           </Link>
 
           {/* Navigation Groups */}
@@ -172,11 +168,8 @@ export function AppShell({ children }: AppShellProps) {
 
       {/* --- Mobile Header & Menu --- */}
       <div className="md:hidden flex items-center justify-between p-4 border-b border-[var(--border-subtle)] bg-[var(--card-bg)] sticky top-0 z-40">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-[8px] bg-[var(--accent)] text-white font-heading font-black text-xs flex items-center justify-center">
-            CS
-          </div>
-          <span className="font-heading font-bold text-sm text-[var(--foreground)]">ChatSense</span>
+        <Link href="/" className="flex items-center">
+          <BrandLogo size={28} textClassName="text-sm font-bold" />
         </Link>
         <div className="flex items-center gap-2">
           <ThemeToggle />
@@ -195,10 +188,8 @@ export function AppShell({ children }: AppShellProps) {
         <DrawerContent side="left" className="w-72 p-5 flex flex-col justify-between">
           <DrawerHeader className="p-0 pb-3 border-b border-[var(--border-subtle)] flex items-center justify-between text-left">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-[7px] bg-[var(--accent)] text-white font-heading font-black text-xs flex items-center justify-center">
-                CS
-              </div>
-              <DrawerTitle className="text-sm font-bold">ChatSense</DrawerTitle>
+              <BrandLogo size={26} textClassName="text-sm font-bold" />
+              <DrawerTitle className="sr-only">ChatSense</DrawerTitle>
             </div>
             <DrawerClose asChild>
               <button className="p-1 rounded-[8px] hover:bg-[var(--card-bg-hover)] text-[var(--muted)]">

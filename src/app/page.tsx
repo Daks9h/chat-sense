@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
+import { BrandLogo } from "@/components/brand-logo";
 import { DiaTextReveal } from "@/components/magicui/dia-text-reveal";
 import {
   FileSearch,
@@ -39,13 +40,8 @@ export default function LandingPage() {
         }`}
       >
         <div className="max-w-7xl mx-auto px-6 md:px-8 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-[10px] bg-[var(--accent)] text-white font-heading font-black text-sm flex items-center justify-center shadow-xs">
-              CS
-            </div>
-            <span className="font-heading font-bold text-lg tracking-tight text-[var(--foreground)]">
-              ChatSense
-            </span>
+          <Link href="/" className="group flex items-center">
+            <BrandLogo size={34} textClassName="text-lg" />
           </Link>
 
           {/* Desktop Links */}
@@ -100,10 +96,8 @@ export default function LandingPage() {
           <DrawerContent side="left" className="w-72 p-6 flex flex-col justify-between">
             <DrawerHeader className="p-0 pb-4 border-b border-[var(--border-subtle)] flex items-center justify-between text-left">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-[9px] bg-[var(--accent)] text-white font-heading font-black text-xs flex items-center justify-center">
-                  CS
-                </div>
-                <DrawerTitle className="text-base font-bold">ChatSense</DrawerTitle>
+                <BrandLogo size={28} textClassName="text-base" />
+                <DrawerTitle className="sr-only">ChatSense</DrawerTitle>
               </div>
               <DrawerClose asChild>
                 <button
@@ -352,8 +346,8 @@ export default function LandingPage() {
       <footer className="border-t border-[var(--border-subtle)] py-8 relative z-10 bg-[var(--background)]/80">
         <div className="max-w-6xl mx-auto px-6 md:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[var(--muted)]">
           <div className="flex items-center gap-2">
-            <span className="font-heading font-bold text-[var(--foreground)]">ChatSense</span>
-            <span>• Evidence-backed chat intelligence</span>
+            <BrandLogo size={22} textClassName="text-xs font-semibold" />
+            <span className="text-[var(--muted)]">• Evidence-backed chat intelligence</span>
           </div>
 
           <div className="flex items-center gap-6">
